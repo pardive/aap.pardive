@@ -5,7 +5,7 @@ on:
     branches: [staging]       # switch to main later
   workflow_dispatch:
   schedule:
-    - cron: "0 22 * * *"      # run nightly at 22:00 UTC
+    - cron: "0 22 * * *"      # nightly at 22:00 UTC
 
 jobs:
   docs-batch:
@@ -28,19 +28,16 @@ jobs:
       - name: Install deps
         run: npm ci
 
-      - name: Submit batch job
+      - name: Run GPT-5 batch (submit → wait → parse)
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           PRODUCT_DOCS_MODEL: gpt-5-chat-latest
-        run: npm run docs:batch
+        run: npm run docs:batch-run
 
-      # 👇 Optional: if you want to parse and commit docs automatically
-      # Uncomment once you confirm batch jobs are completing fast enough
-      # - name: Parse and commit docs
-      #   run: |
-      #     npm run docs:batch-parse
-      #     git config user.name "github-actions[bot]"
-      #     git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-      #     git add docs/product-docs
-      #     git commit -m "docs: auto-update product docs" || echo "No changes"
-      #     git push origin HEAD:${{ github.ref_name }}
+      - name: Commit & Push docs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/product-docs
+          git commit -m "docs: auto-update product docs (batch)" || echo "No changes"
+          git push origin HEAD:${{ github.ref_name }}
