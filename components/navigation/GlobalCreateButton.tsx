@@ -14,6 +14,9 @@ import {
 import { createPortal } from 'react-dom';
 import clsx from 'clsx';
 
+import CreateContactModal from '@/components/contact/CreateContactModal';
+import type { Contact } from '@/types/contact';
+
 function Portal({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -41,6 +44,8 @@ export default function GlobalCreateButton() {
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const hoverTimer = useRef<number | null>(null);
   const router = useRouter();
+
+  const [openContactModal, setOpenContactModal] = useState(false); // ✅ contact modal state
 
   const computePos = () => {
     const el = btnRef.current;
@@ -114,13 +119,12 @@ export default function GlobalCreateButton() {
         )}
         title="Create"
       >
-        {/* ➕ Plus that rotates into an ✕ when menu is open */}
         <Plus
           className={clsx(
             'w-7 h-7 transition-transform duration-200',
             open && 'rotate-45'
           )}
-          strokeWidth={2.5} // slightly thicker for visual weight
+          strokeWidth={2.5}
         />
       </button>
 
@@ -148,7 +152,11 @@ export default function GlobalCreateButton() {
                     role="menuitem"
                     onClick={() => {
                       closeMenu();
-                      router.push(href);
+                      if (label === 'Contact') {
+                        setOpenContactModal(true); // ✅ open modal for Contact
+                      } else {
+                        router.push(href);
+                      }
                     }}
                     className="w-full flex items-center gap-3 px-3 py-2 text-left text-[15px] font-medium hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-900 dark:text-gray-100"
                   >
@@ -161,6 +169,16 @@ export default function GlobalCreateButton() {
           </div>
         </Portal>
       )}
+
+      {/* ✅ Contact Create Modal */}
+      <CreateContactModal
+        open={openContactModal}
+        onOpenChange={setOpenContactModal}
+        onCreated={(c: Contact) => {
+          console.log('Created via GlobalCreateButton:', c);
+          // TODO: refresh contacts list or show a toast
+        }}
+      />
     </>
   );
 }

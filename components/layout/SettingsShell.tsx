@@ -25,13 +25,22 @@ const HELP_VIS_KEY = 'saltify-help-visible';
 
 const PARTITION_OFFSET = 14;
 
+// tab title -> url-safe slug
+const toSlug = (s: string) =>
+  s
+    .trim()
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, '') // remove punctuation
+    .replace(/\s+/g, '-')     // spaces -> dashes
+    .replace(/-+/g, '-');     // collapse multiple dashes
+
 export default function SettingsShell({
   children,
   summary,
   tabsBarHeight = 58,
 }: {
   children: React.ReactNode;
-  summary?: { title: string; bullets: string[] };
+  summary?: { title: string; description?: string; bullets: string[] };
   tabsBarHeight?: number;
 }) {
   const [collapsed, setCollapsed] = useState<boolean>(() => {
@@ -81,9 +90,11 @@ export default function SettingsShell({
 
   const gridCols = helpVisible ? `${safeLeft} 1fr ${safeRight}` : `${safeLeft} 1fr`;
 
+  // internal docs path based on summary.title
   const helpUrl = useMemo(() => {
-    const raw = (summary?.title || 'settings').toLowerCase();
-    return `https://help.saltifysaas.com/settings/${encodeURIComponent(raw)}`;
+    const raw = summary?.title || 'settings';
+    const slug = toSlug(raw);
+    return `/help/docs/settings/${slug}`;
   }, [summary?.title]);
 
   return (
@@ -169,20 +180,20 @@ export default function SettingsShell({
               aria-hidden
             />
 
-            {/* External link */}
+            {/* Full page (internal) — open in new tab */}
             <Link
               href={helpUrl}
               target="_blank"
               rel="noopener noreferrer"
-              aria-label="Open in new page"
-              title="Open in new page"
+              aria-label="Open full page"
+              title="Open full page"
               className="absolute z-30 rounded-md border px-2 py-1 text-xs
                          bg-white dark:bg-ui-pageDark shadow hover:bg-gray-50 dark:hover:bg-ui-appBgDark/60
                          flex items-center gap-1"
               style={{ top: 18, right: 64 }}
             >
               <ExternalLink className="h-4 w-4" />
-              <span className="sr-only">Open in new page</span>
+              <span className="sr-only">Open full page</span>
             </Link>
 
             {/* Hide */}
@@ -197,9 +208,13 @@ export default function SettingsShell({
               Hide »
             </button>
 
-            {/* Help content */}
+            {/* Help content (AI summary via API) */}
             <div className="flex-1 min-h-0">
-              <HelpPanel summary={summary} tabsBarHeight={tabsBarHeight + PARTITION_OFFSET} />
+              <HelpPanel
+                summary={summary}                               // optional fallback
+                docPath={helpUrl}                               // <-- triggers AI summary fetch
+                tabsBarHeight={tabsBarHeight + PARTITION_OFFSET}
+              />
             </div>
           </aside>
         )}

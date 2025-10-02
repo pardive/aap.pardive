@@ -69,7 +69,7 @@ export default function HelpNavbar({ offset = 0, profileHref = '/profile' }: Pro
               />
             </>
           )}
-          <span className="text-2xl font-extrabold tracking-tight whitespace-nowrap">Help</span>
+          <span className="text-2xl px-2 font-extrabold tracking-tight whitespace-nowrap">Help</span>
         </Link>
 
         <HelpNavItems className="px-2" />

@@ -1,40 +1,85 @@
 // lib/help/summary.ts
-// server-only: do not import into client components
 import 'server-only';
 
-import { load } from 'cheerio';          // npm i cheerio
-import OpenAI from 'openai';             // npm i openai
-import { unstable_cache } from 'next/cache';
+import { load } from 'cheerio';
+import OpenAI from 'openai';
+import { cache } from 'react';
+import { headers } from 'next/headers';
 
-export type HelpSummary = { title: string; bullets: string[] };
+export type HelpSummary = { title: string; description?: string; bullets: string[] };
 
-const BASE = process.env.HELP_BASE_URL ?? 'https://help.saltifysaas.com';
+const BASE = '/help';
 
-function extractMain(html: string): { title: string; text: string } {
+function getOrigin(): string {
+  if (process.env.NEXT_PUBLIC_SITE_URL) return process.env.NEXT_PUBLIC_SITE_URL.replace(/\/+$/, '');
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`.replace(/\/+$/, '');
+  try {
+    const h = headers();
+    const proto = h.get('x-forwarded-proto') || 'http';
+    const host = h.get('x-forwarded-host') || h.get('host') || 'localhost:3000';
+    return `${proto}://${host}`.replace(/\/+$/, '');
+  } catch {
+    return 'http://localhost:3000';
+  }
+}
+
+function normalizePath(pathname: string): string {
+  let p = (pathname || '').trim();
+  if (!p) return BASE;
+  if (/^https?:\/\//i.test(p)) return p; // absolute URL -> return as-is
+  if (p.startsWith('/')) p = p.slice(1);
+  if (p.toLowerCase().startsWith('help/')) p = p.slice('help/'.length);
+  return `${BASE}/${p}`.replace(/\/+/g, '/'); // /help/...
+}
+
+function extractMain(html: string): { title: string; description?: string; text: string } {
   const $ = load(html);
-  const title = $('h1').first().text().trim() || 'Settings';
+  const $h1 = $('h1').first();
+  const title = $h1.text().trim() || 'Settings';
+
+  let description = '';
+  if ($h1.length) {
+    const $pAfter = $h1.nextAll('p').first();
+    if ($pAfter.length) description = $pAfter.text().replace(/\s+/g, ' ').trim();
+  }
+  if (!description) {
+    const $pAny = $('p').first();
+    if ($pAny.length) description = $pAny.text().replace(/\s+/g, ' ').trim();
+  }
+
   const main = $('main, article').first();
   const text = (main.length ? main : $('body'))
     .text()
     .replace(/\s+/g, ' ')
     .trim()
-    .slice(0, 12000); // guardrail
-  return { title, text };
+    .slice(0, 12000);
+
+  return { title, description: description || undefined, text };
 }
 
-async function summarize(title: string, text: string): Promise<HelpSummary> {
+async function runSummary(title: string, text: string, existingDesc?: string): Promise<HelpSummary> {
+  if (!process.env.OPENAI_API_KEY) {
+    return {
+      title,
+      description: existingDesc ?? 'AI summary unavailable (missing OPENAI_API_KEY).',
+      bullets: ['Set OPENAI_API_KEY to enable AI summaries.'],
+    };
+  }
+
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
   const prompt = `
-Return ONLY valid JSON: {"title": "...", "bullets": ["..."]}
+Return ONLY valid JSON:
+{"title":"...","description":"...","bullets":["..."]}
 
-Summarize for an in-app help rail:
-- 5–8 concise, actionable bullets (<= 18 words)
-- No fluff; focus on what/why/how
+Guidelines:
+- description: 1–2 sentences, plain, no markdown
+- bullets: 5–8 concise, actionable items (<= 18 words), focus on what/why/how
 
 PAGE TITLE: ${title}
+${existingDesc ? `HINT DESCRIPTION: ${existingDesc}` : ''}
 PAGE TEXT:
 ${text}
-  `.trim();
+`.trim();
 
   const resp = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
@@ -46,48 +91,50 @@ ${text}
   const content = resp.choices[0]?.message?.content || '{}';
   const json = JSON.parse(content);
   const bullets = Array.isArray(json.bullets) ? json.bullets.slice(0, 8) : [];
-  return { title: String(json.title || title || 'Settings').trim(), bullets };
+  return {
+    title: String(json.title || title || 'Settings').trim(),
+    description: json.description ? String(json.description).trim() : existingDesc,
+    bullets,
+  };
 }
 
-export function helpUrlForPath(pathname: string): string {
-  const clean = pathname.replace(/^\/+/, '');
-  return `${BASE}/${clean}`;
-}
+// Per-path cached loader (fetch has its own 24h revalidate)
+export const getHelpSummaryFor = cache(async (pathname: string): Promise<HelpSummary> => {
+  const pathOnly = normalizePath(pathname); // /help/...
+  const absolute = /^https?:\/\//i.test(pathOnly) ? pathOnly : `${getOrigin()}${pathOnly}`;
 
-/** Cached public entry point (24h). Call only from server. */
-export const getHelpSummaryFor = unstable_cache(
-  async (pathname: string): Promise<HelpSummary> => {
-    const url = helpUrlForPath(pathname);
-    const res = await fetch(url, { next: { revalidate: 60 * 60 * 24 } }); // 24h
-    if (!res.ok) {
-      return {
-        title: 'Settings',
-        bullets: [
-          'Open the full help page from the link at right.',
-          'Use help search to find specific topics.',
-          'Contact support for guided setup.',
-        ],
-      };
-    }
-    const html = await res.text();
-    const { title, text } = extractMain(html);
+  const res = await fetch(absolute, { next: { revalidate: 60 * 60 * 24 } });
+  if (!res.ok) {
+    return {
+      title: 'Settings',
+      description: 'Open the full page for detailed guidance.',
+      bullets: [
+        'Open the full help page from the link at right.',
+        'Use help search to find specific topics.',
+        'Contact support for guided setup.',
+      ],
+    };
+  }
 
-    // For very short pages, extract key lines without calling the model
-    if (text.length < 400) {
-      const bullets = text
-        .split(/[•\-\n]/g)
-        .map(s => s.trim())
-        .filter(Boolean)
-        .slice(0, 6);
-      return { title, bullets: bullets.length ? bullets : [text] };
-    }
+  const html = await res.text();
+  const { title, description, text } = extractMain(html);
 
-    try {
-      return await summarize(title, text);
-    } catch {
-      return { title, bullets: ['Summary temporarily unavailable. Open the full page for details.'] };
-    }
-  },
-  (pathname: string) => ['help-summary', pathname],
-  { revalidate: 60 * 60 * 24 }
-);
+  if (text.length < 400) {
+    const bullets = text
+      .split(/[•\-\n]/g)
+      .map(s => s.trim())
+      .filter(Boolean)
+      .slice(0, 6);
+    return { title, description, bullets: bullets.length ? bullets : [text] };
+  }
+
+  try {
+    return await runSummary(title, text, description);
+  } catch {
+    return {
+      title,
+      description,
+      bullets: ['Summary temporarily unavailable. Open the full page for details.'],
+    };
+  }
+});

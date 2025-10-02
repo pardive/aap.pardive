@@ -13,16 +13,44 @@ import { LayoutDashboard, Palette, PanelsLeftRight, Badge } from 'lucide-react';
 
 type TabKey = 'workspace' | 'appearance' | 'sidebar' | 'branding';
 
-const WorkspaceTab     = dynamic(() => import('./tabs/WorkspaceTab'),     { ssr: false });
-const AppearanceTab    = dynamic(() => import('./tabs/AppearanceTab'),    { ssr: false });
-const SidebarModuleTab = dynamic(() => import('./tabs/SidebarModuleTab'), { ssr: false });
-const BrandingTab      = dynamic(() => import('./tabs/BrandingTab'),      { ssr: false });
+type SettingsClientProps = {
+  onSummaryChange?: (s: { title: string; bullets: string[] }) => void;
+  onHelpTopicChange?: (tabKey: TabKey) => void;
+  onTabsBarHeightChange?: (px: number) => void;
+};
+
+// Dynamic tabs — resolve to component (default or named) and use suspense
+const WorkspaceTab = dynamic(
+  () =>
+    import('./tabs/WorkspaceTab').then((m) => m.default ?? (m as any).WorkspaceTab),
+  { ssr: false, suspense: true }
+);
+
+const AppearanceTab = dynamic(
+  () =>
+    import('./tabs/AppearanceTab').then((m) => m.default ?? (m as any).AppearanceTab),
+  { ssr: false, suspense: true }
+);
+
+const SidebarModuleTab = dynamic(
+  () =>
+    import('./tabs/SidebarModuleTab').then(
+      (m) => m.default ?? (m as any).SidebarModuleTab
+    ),
+  { ssr: false, suspense: true }
+);
+
+const BrandingTab = dynamic(
+  () =>
+    import('./tabs/BrandingTab').then((m) => m.default ?? (m as any).BrandingTab),
+  { ssr: false, suspense: true }
+);
 
 const TABS: { key: TabKey; label: string; Icon: React.ComponentType<any> }[] = [
-  { key: 'workspace', label: 'Workspace',   Icon: LayoutDashboard },
+  { key: 'workspace', label: 'Workspace', Icon: LayoutDashboard },
   { key: 'appearance', label: 'Appearance', Icon: Palette },
-  { key: 'sidebar',    label: 'Sidebar',    Icon: PanelsLeftRight },
-  { key: 'branding',   label: 'Branding',   Icon: Badge },
+  { key: 'sidebar', label: 'Sidebar', Icon: PanelsLeftRight },
+  { key: 'branding', label: 'Branding', Icon: Badge },
 ];
 
 // Local fallback summaries (used only if onHelpTopicChange isn’t provided)
@@ -54,15 +82,9 @@ const FALLBACK_SUMMARY: Record<TabKey, { title: string; bullets: string[] }> = {
   },
 };
 
-export default function SettingsClient({
-  onSummaryChange,
-  onHelpTopicChange,           // NEW: tell the page which tab is active for AI summary fetch
-  onTabsBarHeightChange,
-}: {
-  onSummaryChange?: (s: { title: string; bullets: string[] }) => void;
-  onHelpTopicChange?: (tabKey: TabKey) => void; // NEW
-  onTabsBarHeightChange?: (px: number) => void;
-}) {
+export default function SettingsClient(props: SettingsClientProps) {
+  const { onSummaryChange, onHelpTopicChange, onTabsBarHeightChange } = props;
+
   const [active, setActive] = useState<TabKey>('workspace');
   const tabsBarRef = useRef<HTMLDivElement>(null);
 
@@ -93,7 +115,7 @@ export default function SettingsClient({
     setActive(next);
 
     if (onHelpTopicChange) {
-      onHelpTopicChange(next);               // parent will fetch AI summary via API
+      onHelpTopicChange(next); // parent will fetch AI summary via API
     } else if (onSummaryChange) {
       onSummaryChange(FALLBACK_SUMMARY[next]); // fallback: local static bullets
     }
@@ -130,10 +152,10 @@ export default function SettingsClient({
       {/* Tab content */}
       <div className="p-4">
         <Suspense fallback={<div className="text-sm text-muted-foreground p-4">Loading…</div>}>
-          {active === 'workspace'  && <WorkspaceTab />}
+          {active === 'workspace' && <WorkspaceTab />}
           {active === 'appearance' && <AppearanceTab />}
-          {active === 'sidebar'    && <SidebarModuleTab />}
-          {active === 'branding'   && <BrandingTab />}
+          {active === 'sidebar' && <SidebarModuleTab />}
+          {active === 'branding' && <BrandingTab />}
         </Suspense>
       </div>
     </div>

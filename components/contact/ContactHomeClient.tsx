@@ -1,11 +1,12 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import ModuleHomeHeader from '@/components/module/ModuleHomeHeader';
 import ModuleListView, { Column } from '@/components/module/ModuleListView';
 import { Download, Trash2, Settings } from 'lucide-react';
+import CreateContactModal from '@/components/contact/CreateContactModal';
 
 type Contact = {
   id?: string;           // may be missing
@@ -32,12 +33,13 @@ const deriveRouteId = (row: Contact, idx: number): string => {
   return `row-${idx}`;
 };
 
-const contactDetailPath = (rid: string) => `/contact/${rid}`; // change to `/contacts/${rid}` if your route is plural
+const contactDetailPath = (rid: string) => `/contact/${rid}`;
 
 type ContactRow = Contact & { _rid: string };
 
 export default function ContactHomeClient({ data }: { data: Contact[] }) {
   const router = useRouter();
+  const [openCreate, setOpenCreate] = useState(false);
 
   // add a safe route id for every row
   const rows: ContactRow[] = useMemo(
@@ -55,10 +57,7 @@ export default function ContactHomeClient({ data }: { data: Contact[] }) {
         <Link
           href={contactDetailPath(row._rid)}
           className="text-blue-600 hover:underline"
-          onClick={(e) => {
-            // prevent row-level onClick from firing
-            e.stopPropagation();
-          }}
+          onClick={(e) => e.stopPropagation()}
         >
           {String(v ?? '—')}
         </Link>
@@ -81,7 +80,7 @@ export default function ContactHomeClient({ data }: { data: Contact[] }) {
     <>
       <ModuleHomeHeader
         onFilter={() => console.log('Filter Contacts')}
-        onCreate={() => console.log('Create Contact')}
+        onCreate={() => setOpenCreate(true)}   // ✅ open modal
         onImport={() => console.log('Import Contacts')}
         tools={[
           { label: 'Export CSV', onClick: () => console.log('Export CSV'), icon: Download },
@@ -94,7 +93,7 @@ export default function ContactHomeClient({ data }: { data: Contact[] }) {
         <ModuleListView<ContactRow>
           columns={columns}
           data={rows}
-          idKey="_rid"                     // ✅ use the derived id for keys/selection
+          idKey="_rid"
           initialPageSize={10}
           renderBulkActions={(sel) => (
             <>
@@ -112,11 +111,19 @@ export default function ContactHomeClient({ data }: { data: Contact[] }) {
               </button>
             </>
           )}
-          onRowClick={(row) => {
-            router.push(contactDetailPath(row._rid)); // ✅ navigate on row click
-          }}
+          onRowClick={(row) => router.push(contactDetailPath(row._rid))}
         />
       </div>
+
+      {/* Create Contact Modal */}
+      <CreateContactModal
+        open={openCreate}
+        onOpenChange={setOpenCreate}
+        onCreated={(c) => {
+          console.log('Contact created:', c);
+          // TODO: refresh table data (SWR refetch / server action)
+        }}
+      />
     </>
   );
 }

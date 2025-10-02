@@ -1,102 +1,111 @@
+// components/hooks/useModuleFlags.ts
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useSyncExternalStore } from 'react';
+import {
+  MODULES,
+  computeDefaultMap,
+  flattenIds,
+  type EnabledMap,
+} from '@/config/modules';
 
-export type EnabledMap = Record<string, boolean>;
-export const ENABLED_STORAGE_KEY = 'enabledModules';
+const STORAGE_KEY = 'enabledModules';
 
-// Defaults: show all until user hides
-const DEFAULTS: EnabledMap = {
-  dashboard: true,
-  landingpages: true,
-  forms: true,
-  'ai-agents': true,
-  contacts: true,
-  'data-tables': true,
-  segments: true,
-  reports: true,
-};
+type StoreState = { map: EnabledMap };
 
-export function readEnabledModules(): EnabledMap {
+function loadInitial(): EnabledMap {
   try {
-    const raw = localStorage.getItem(ENABLED_STORAGE_KEY);
-    return raw ? { ...DEFAULTS, ...JSON.parse(raw) } : { ...DEFAULTS };
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null') as
+      | EnabledMap
+      | null;
+    const defaults = computeDefaultMap(MODULES);
+
+    // Keep only valid ids; fill missing ids from defaults
+    const validIds = new Set(flattenIds(MODULES));
+    const merged: EnabledMap = { ...defaults };
+    if (saved && typeof saved === 'object') {
+      for (const [k, v] of Object.entries(saved)) {
+        if (validIds.has(k)) merged[k] = v !== false;
+      }
+    }
+    return merged;
   } catch {
-    return { ...DEFAULTS };
+    return computeDefaultMap(MODULES);
   }
 }
 
-/**
- * Write + broadcast (instant same-tab updates).
- * Use this in your Settings toggles instead of direct localStorage.setItem.
- */
-export function writeEnabledModules(
-  updates:
-    | Partial<EnabledMap>
-    | ((prev: EnabledMap) => Partial<EnabledMap>),
-  opts?: { replace?: boolean }
-): EnabledMap {
-  const prev = readEnabledModules();
-  const delta = typeof updates === 'function' ? updates(prev) : updates;
-  const next = opts?.replace ? { ...DEFAULTS, ...delta } : { ...prev, ...delta };
-
+function persist(map: EnabledMap) {
   try {
-    localStorage.setItem(ENABLED_STORAGE_KEY, JSON.stringify(next));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
   } catch {}
-  // same-tab instant notify
-  window.dispatchEvent(new CustomEvent('enabledModules:change', { detail: next }));
-  return next;
 }
 
-export function resetEnabledModules(): EnabledMap {
-  return writeEnabledModules(DEFAULTS, { replace: true });
+function createStore() {
+  let state: StoreState = { map: computeDefaultMap(MODULES) }; // SSR-safe
+  const listeners = new Set<() => void>();
+
+  // Hydrate on client
+  if (typeof window !== 'undefined') {
+    state = { map: loadInitial() };
+  }
+
+  const getSnapshot = () => state.map; // must be referentially stable until changed
+
+  const setState = (updater: (prev: EnabledMap) => EnabledMap) => {
+    const next = updater(state.map);
+    if (next === state.map) return;
+    state = { map: next };
+    persist(state.map);
+    listeners.forEach((l) => l());
+  };
+
+  return {
+    subscribe(fn: () => void) {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+    getSnapshot,
+
+    /** Set a single id (merge) */
+    setEnabled(id: string, on: boolean) {
+      setState((prev) => (prev[id] === on ? prev : { ...prev, [id]: on }));
+    },
+
+    /** Set many ids atomically (ALWAYS merge; no full-map replacement) */
+    setEnabledMany(
+      patch:
+        | Partial<EnabledMap>
+        | ((prev: EnabledMap) => Partial<EnabledMap>)
+    ) {
+      setState((prev) => {
+        const delta =
+          typeof patch === 'function' ? patch(prev) : patch;
+        return { ...prev, ...delta };
+      });
+    },
+
+    /** Reset to registry defaults */
+    reset() {
+      setState(() => computeDefaultMap(MODULES));
+    },
+  };
 }
 
-/**
- * Hook used by LeftNavigationBar (returns { map } for backward-compat).
- * It reacts to both the custom event and to cross-tab storage changes.
- */
+const store = createStore();
+
 export function useModuleFlags() {
-  const [map, setMap] = useState<EnabledMap>(DEFAULTS);
-
-  // initial load
-  useEffect(() => {
-    setMap(readEnabledModules());
-  }, []);
-
-  // subscribe to same-tab custom event + cross-tab storage
-  useEffect(() => {
-    const onCustom = (e: Event) => {
-      const detail = (e as CustomEvent).detail as EnabledMap | undefined;
-      if (detail) setMap(detail);
-    };
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === ENABLED_STORAGE_KEY && e.newValue) {
-        try {
-          setMap({ ...DEFAULTS, ...JSON.parse(e.newValue) });
-        } catch {}
-      }
-    };
-    window.addEventListener('enabledModules:change', onCustom as EventListener);
-    window.addEventListener('storage', onStorage);
-    return () => {
-      window.removeEventListener('enabledModules:change', onCustom as EventListener);
-      window.removeEventListener('storage', onStorage);
-    };
-  }, []);
-
-  // Optional setters if you ever want them in UI
-  const api = useMemo(
-    () => ({
-      map,
-      setOne: (key: string, value: boolean) =>
-        setMap(writeEnabledModules({ [key]: value })),
-      setMany: (updates: Partial<EnabledMap>) =>
-        setMap(writeEnabledModules(updates)),
-      reset: () => setMap(resetEnabledModules()),
-    }),
-    [map]
+  const map = useSyncExternalStore(
+    store.subscribe,
+    store.getSnapshot,
+    store.getSnapshot
   );
+  const enabledIds = Object.keys(map).filter((k) => map[k] !== false);
 
-  return api;
+  return {
+    map,
+    enabledIds,
+    setEnabled: store.setEnabled,
+    setEnabledMany: store.setEnabledMany,
+    reset: store.reset,
+  };
 }

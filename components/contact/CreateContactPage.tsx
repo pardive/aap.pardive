@@ -7,10 +7,12 @@ import { Contact } from '@/types/contact';
 
 export default function CreateContactPage({
   onSave,
-  onCancel
+  onCancel,
+  showTitle = true,   // 👈 added
 }: {
   onSave?: (contact: Contact) => void;
   onCancel?: () => void;
+  showTitle?: boolean;
 }) {
   const [contact, setContact] = useState<Contact>({
     firstName: '',
@@ -35,7 +37,12 @@ export default function CreateContactPage({
 
   return (
     <div className="space-y-6 p-4">
-      <h2 className="text-xl font-semibold text-[#00332D] dark:text-white">Create New Contact</h2>
+      {showTitle && (                                  // 👈 conditional title
+        <h2 className="text-xl font-semibold text-[#00332D] dark:text-white">
+          Create Contact
+        </h2>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Input placeholder="First Name" value={contact.firstName} onChange={(e) => handleChange('firstName', e.target.value)} />
         <Input placeholder="Last Name" value={contact.lastName} onChange={(e) => handleChange('lastName', e.target.value)} />
