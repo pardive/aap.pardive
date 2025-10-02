@@ -46,19 +46,27 @@ ${code}`
     }
   };
 });
+
 const inputPath = "batch-input.jsonl";
 fs.writeFileSync(inputPath, requests.map(r => JSON.stringify(r)).join("\n"));
 console.log(`🧰 Built batch input with ${requests.length} items`);
 
-// 2) Submit batch
+// 2) Upload file → get input_file_id (REQUIRED)
+const uploaded = await client.files.create({
+  file: fs.createReadStream(inputPath),
+  purpose: "batch"
+});
+console.log("📤 Uploaded input file:", uploaded.id);
+
+// 3) Create batch with input_file_id
 const batch = await client.batches.create({
-  input_file: fs.createReadStream(inputPath),
+  input_file_id: uploaded.id,
   endpoint: "/v1/chat/completions",
   completion_window: "24h"
 });
-console.log("📤 Submitted batch:", batch.id);
+console.log("🚀 Submitted batch:", batch.id);
 
-// 3) Poll until done
+// 4) Poll until done
 let status = batch.status;
 let lastProgress = "";
 while (!["completed", "expired", "failed", "canceled"].includes(status)) {
@@ -72,14 +80,14 @@ while (!["completed", "expired", "failed", "canceled"].includes(status)) {
 console.log("✅ Final status:", status);
 if (status !== "completed") throw new Error(`Batch ended with status: ${status}`);
 
-// 4) Download output
+// 5) Download output
 const fresh = await client.batches.retrieve(batch.id);
 const outStream = await client.files.content(fresh.output_file_id);
 const jsonl = await streamToString(outStream.body);
 fs.writeFileSync("batch-output.jsonl", jsonl);
 console.log("📥 Saved batch-output.jsonl");
 
-// 5) Parse → docs/product-docs
+// 6) Parse → docs/product-docs
 fs.mkdirSync(OUT_DIR, { recursive: true });
 const lines = jsonl.split("\n").map(l => l.trim()).filter(Boolean);
 for (const line of lines) {
