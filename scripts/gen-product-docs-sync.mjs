@@ -1,6 +1,3 @@
-// Sequential (non-batch) generator using Responses API with polite rate limiting.
-// Uses the same "full baseline" vs "smart window" selection as batch script.
-
 import fs from "fs";
 import path from "path";
 import { globby } from "globby";
@@ -12,18 +9,17 @@ const OUT_DIR = path.join(ROOT, "docs/product-docs");
 const META_DIR = path.join(ROOT, "docs");
 const LAST_RUN_PATH = path.join(META_DIR, ".last_run.json");
 
-const MODEL = process.env.PRODUCT_DOCS_MODEL || "gpt-5-mini";          // default
+const MODEL = process.env.PRODUCT_DOCS_MODEL || "gpt-5-mini";
 const FALLBACK = process.env.PRODUCT_DOCS_FALLBACK_MODEL || "gpt-4o-mini";
 
 const MAX_ITEMS = Number(process.env.PRODUCT_DOCS_MAX_ITEMS || 200);
 const WINDOW_HOURS = Number(process.env.DOCS_CHANGED_WINDOW_HOURS || 24);
 const FORCE_FULL = process.env.FORCE_FULL === "1";
-const SLEEP_MS = Number(process.env.SYNC_SLEEP_MS || 2000);            // 2s between calls
+const SLEEP_MS = Number(process.env.SYNC_SLEEP_MS || 2000);
 const MAX_RETRIES = Number(process.env.SYNC_MAX_RETRIES || 5);
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// ---------- helpers ----------
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function unique(a){return [...new Set(a.filter(Boolean))];}
 function routeFrom(f){
@@ -63,13 +59,11 @@ function promptFor(route, file, code){
   ].join("\n");
 }
 
-// ---------- select targets ----------
 async function selectTargets(){
   const all = await globby(
     ["src/app/**/page.{tsx,ts,jsx,js}", "src/pages/**/*.{tsx,ts,jsx,js}"],
     { gitignore: true }
   );
-
   if (FORCE_FULL) return all.slice(0, MAX_ITEMS);
 
   let changed = [];
@@ -92,34 +86,47 @@ async function selectTargets(){
 async function generateOne({ file, model }) {
   const route = routeFrom(file);
   const code = fs.readFileSync(file, "utf8").slice(0, 3000);
+  let activeModel = model;
   let lastErr = null;
 
   for (let i = 0; i < MAX_RETRIES; i++) {
     try {
       const res = await client.responses.create({
-        model,
+        model: activeModel,
         input: promptFor(route, file, code),
-        temperature: 0.2,
+        // NOTE: no temperature; keep outputs small only if model allows
         max_output_tokens: 800
       });
-      // Responses API content path:
-      const content = res.output?.[0]?.content?.[0]?.text
-        || res.choices?.[0]?.message?.content
-        || "";
-      return { route, text: content || "⚠️ No content generated" };
+      const text =
+        res.output?.[0]?.content?.[0]?.text ||
+        res.choices?.[0]?.message?.content ||
+        "";
+      return { route, text: text || "⚠️ No content generated" };
     } catch (e) {
       lastErr = e;
       const msg = e?.message || String(e);
-      // backoff on rate limit; switch model on validation-ish errors
+
       if (/rate limit|tpm|rpm/i.test(msg)) {
         const wait = Math.min(15000, (i + 1) * 2000);
         console.warn(`⏳ Rate limited (${i + 1}/${MAX_RETRIES}) — waiting ${wait}ms...`);
         await sleep(wait);
       } else if (/billing_hard_limit|insufficient_quota/i.test(msg)) {
-        throw e; // billing problem—surface immediately
-      } else if (/unsupported model|not allowed|unknown model|invalid/.test(msg) && model !== FALLBACK) {
-        console.warn(`⚠️ Model '${model}' rejected. Switching to fallback '${FALLBACK}'.`);
-        model = FALLBACK;
+        throw e;
+      } else if (/unsupported parameter: 'max_output_tokens'/i.test(msg)) {
+        console.warn("⚠️ Model doesn't allow max_output_tokens; removing it for next try.");
+        // re-run without max_output_tokens
+        return await client.responses.create({
+          model: activeModel,
+          input: promptFor(route, file, code)
+        }).then((res2) => {
+          const text2 =
+            res2.output?.[0]?.content?.[0]?.text ||
+            res2.choices?.[0]?.message?.content || "";
+          return { route, text: text2 || "⚠️ No content generated" };
+        });
+      } else if (/unsupported model|not allowed|unknown model|invalid/i.test(msg) && activeModel !== FALLBACK) {
+        console.warn(`⚠️ Model '${activeModel}' rejected. Switching to fallback '${FALLBACK}'.`);
+        activeModel = FALLBACK;
       } else {
         const wait = Math.min(8000, (i + 1) * 1500);
         console.warn(`⚠️ Error: ${msg} — retrying in ${wait}ms`);
@@ -139,7 +146,6 @@ function writeDoc({ route, text }) {
   );
 }
 
-// ---------- main ----------
 (async () => {
   const targets = await selectTargets();
   console.log(`🧵 Sync mode: generating ${targets.length} pages (model: ${MODEL})`);
@@ -159,7 +165,6 @@ function writeDoc({ route, text }) {
     }
   }
 
-  // write last run metadata
   fs.mkdirSync(META_DIR, { recursive: true });
   fs.writeFileSync(LAST_RUN_PATH, JSON.stringify({ completed_at: new Date().toISOString(), items: targets.length }, null, 2));
 
