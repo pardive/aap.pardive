@@ -7,3 +7,8 @@ export const HELP: Record<TabKey, { path: string; title: string }> = {
   sidebar:    { path: '/help/settings/sidebar',    title: 'Sidebar' },
   branding:   { path: '/help/settings/branding',   title: 'Branding' },
 };
+{
+  id: "identity-rules",
+  label: "Identity Rules",
+  href: "/settings/data/identity-rules"
+}

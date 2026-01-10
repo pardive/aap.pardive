@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const APP_DOMAIN = process.env.NEXT_PUBLIC_APP_DOMAIN!;
+const APP_DOMAIN = process.env.APP_DOMAIN!;
 
 export async function POST(req: Request) {
   try {

@@ -1,6 +1,11 @@
-export function authHeader(token?: string) {
-  if (!token) return {};
-  return {
-    Authorization: `Bearer ${token}`, // NOTHING ELSE
+export function getAuthHeaders(token?: string) {
+  const headers: HeadersInit = {
+    "Content-Type": "application/json",
   };
+
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  return headers;
 }
