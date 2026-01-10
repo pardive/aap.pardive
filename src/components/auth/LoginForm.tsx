@@ -41,7 +41,7 @@ export default function LoginForm() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email: form.identifier, // email for now
+          email: form.identifier,
           password: form.password,
         }),
       });
@@ -54,8 +54,20 @@ export default function LoginForm() {
         return;
       }
 
-      // ✅ SUCCESS
-      window.location.href = '/home';
+      /* ======================================================
+         ✅ LOGIN SUCCESS REDIRECT LOGIC (NEW)
+      ====================================================== */
+
+      const lastApp = localStorage.getItem('last_app');
+
+      if (!lastApp || lastApp === 'workspace') {
+        window.location.href = '/home';
+      } else {
+        window.location.href = `/apps/${lastApp}`;
+      }
+
+      /* ====================================================== */
+
     } catch (err) {
       setError('Something went wrong');
       setLoading(false);
@@ -158,7 +170,7 @@ export default function LoginForm() {
         <div className="flex-1 h-px bg-gray-300" />
       </div>
 
-      {/* Third-party login (stub) */}
+      {/* Third-party login */}
       <div className="space-y-2">
         {[
           { name: 'Google', icon: '/icons/google.png' },
