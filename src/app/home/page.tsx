@@ -1,8 +1,17 @@
-export default function HomePage() {
-  return (
-    <div className="min-h-screen p-10">
-      <h1 className="text-3xl font-bold">Home</h1>
-      <p>Landing page placeholder</p>
-    </div>
-  );
+'use client';
+
+import { useEffect } from 'react';
+
+export default function HomeRedirect() {
+  useEffect(() => {
+    const lastApp = localStorage.getItem('last_app');
+
+    if (!lastApp || lastApp === 'workspace') {
+      window.location.replace('/workspace');
+    } else {
+      window.location.replace(`/apps/${lastApp}`);
+    }
+  }, []);
+
+  return null;
 }
